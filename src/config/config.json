@@ -1,0 +1,7 @@
+ {  
+    "DATABASE_URL" : "mis_warehouse/wrldc#123@10.2.100.56:15210/ORCLWR",
+    "DB_USERNAME" : "ORCLWR",
+    "DB_PASSWORD" : "wrldc#123"
+}
+
+

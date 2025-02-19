@@ -3,55 +3,50 @@ from copy import deepcopy
 import datetime as dt
 import pandas as pd
 import random
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from src.config.config import load_config
+from src.repos.GetDayAHeadData import getDayAHeadData
+from src.repos.GetForecastRevision import getForecastRevision
+
 
 pointIdPayload = {
     "label": "Point Id",
     "name": "point_id",
-    "type": "input"
-}
-samplingTypePayload = {
-    "label": "Sampling Type",
-    "name": "sampling_type",
     "type": "select",
-    "placeholder": "Select Sampling Type",
+    "placeholder": "Select State",
     "reloadMetric": True,
     "options": [
-        {"label": "Snap", "value": "snap"},
-        {"label": "Average", "value": "avg"},
-        {"label": "Maximum", "value": "max"},
-        {"label": "Minimum", "value": "min"},
-        {"label": "Raw", "value": "raw"}
-    ]
-}
-samplingFreqPayload = {
-    "label": "Sampling Frequency (secs)",
-    "name": "sampling_freq",
-    "type": "input"
-}
-avoidFuturePayload = {
-    "label": "Avoid Future",
-    "name": "avoid_future",
-    "type": "select",
-    "options": [
-        {"label": "Yes", "value": "yes"},
-        {"label": "No", "value": "no"}
+        {"label": "CHATTISGARH", "value": "CHATTISGARH"},
+        {"label": "GUJRAT", "value": "GUJRAT"},
+        {"label": "GOA", "value": "GOA"},
+        {"label": "MADHYA PRADESH", "value": "MADHYA PRADESH"},
+        {"label": "MAHARASTRA", "value": "MAHARASTRA"},
+        {"label": "WR-TOTAL", "value": "WR-TOTAL"}
     ]
 }
 
+
 historyMetric = {
-    "label": "HISTORY",
-    "value": "history",
-    "payloads": [pointIdPayload, samplingTypePayload, samplingFreqPayload, avoidFuturePayload]
+    "label": "IntraDay Demand Forecast",
+    "value": "IDF",
+    "payloads": [pointIdPayload,]
 }
 realTimeMetric = {
-    "label": "REALTIME",
-    "value": "real",
-    "payloads": [pointIdPayload, avoidFuturePayload]
+    "label": "DayAHead Demand Forecast",
+    "value": "DAF",
+    "payloads": [pointIdPayload,]
 }
 
 metrics = [historyMetric, realTimeMetric]
 
 app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return "hello"
+
 
 @app.route("/api")
 def healthCheck():
@@ -59,26 +54,24 @@ def healthCheck():
 
 @app.route("/api/metrics", methods=["POST"])
 def getMetrics():
-    metricsFinal = deepcopy(metrics)
-    queryData = request.get_json()
-    metricName = queryData.get("metric", "")
-    samplingType = queryData.get("payload", {}).get("sampling_type", "")
-    if metricName == "history" and samplingType == "raw":
-        metricsFinal[0]["payloads"] = [pointIdPayload,
-                                       samplingTypePayload, avoidFuturePayload]
-    return metricsFinal
+    return metrics
 
 @app.route("/api/metric-payload-options", methods=["POST"])
 def getMetricPayloadOptions():
     queryData = request.get_json()
-    # metricName = queryData.get("metric", "")
-    # currentPayload = queryData.get("payload", {})
     payloadOptions = []
     reqPayloadName = queryData.get("name", "")
-    if reqPayloadName == "avoid_future":
-        payloadOptions = [{"label": "Yes", "value": "yes"},
-                          {"label": "No", "value": "no"}]
+    if reqPayloadName == 'point_id':
+        payloadOptions = [
+        {"label": "CHATTISGARH", "value": "CHATTISGARH"},
+        {"label": "GUJRAT", "value": "GUJRAT"},
+        {"label": "GOA", "value": "GOA"},
+        {"label": "MADHYA PRADESH", "value": "MADHYA PRADESH"},
+        {"label": "MAHARASTRA", "value": "MAHARASTRA"},
+        {"label": "WR-TOTAL", "value": "WR-TOTAL"}
+    ]
     return payloadOptions
+
 
 @app.route("/api/query", methods=["POST"])
 def queryData():
@@ -89,19 +82,40 @@ def queryData():
     endTime = dt.datetime.strptime(
         queryData["range"]["to"], "%Y-%m-%dT%H:%M:%S.%fZ")
     targets = queryData["targets"]
+
     response = []
     for t in targets:
         targetPayload = t.get("payload", {})
+        print("\n\n\n---\n", targetPayload, "\n\n\n---\n")
+        
+        point_Id = targetPayload['point_id']    #this denotes the state name 
+        value = t.get("target", "")    #this denotes the history or real value
         targetData = {
             "target": t["refId"],
             "datapoints": []
         }
-        samplFreq = int(targetPayload.get("sampling_freq", "60"))
-        for sampleTime in pd.date_range(startTime, endTime, freq=dt.timedelta(seconds=samplFreq)):
-            targetData["datapoints"].append(
-                [random.randint(100, 300), int(sampleTime.timestamp()*1000)])
+
+
+        startTime = str(startTime)[:-3]
+        endTime = str(endTime)[:-3]
+
+        #DayAHeadForecast 
+        if value == 'DAF':
+            data = getDayAHeadData(startTime, endTime, point_Id)
+            for i in data:
+                i[1] = int((i[1].timestamp() + 19800)*1000) #add 5 hours and 30 mins to time to convert it to our time zone
+                targetData["datapoints"].append(i)
+            
+
+        elif value == 'IDF':
+            data = getForecastRevision(startTime, endTime, point_Id)
+            for i in data:
+                i[1] = int((i[1].timestamp() + 19800)*1000) #add 5 hours and 30 mins to time to convert it to our time zone
+                targetData["datapoints"].append(i)
+        
         response.append(targetData)
-    # print(response)
+
     return response
 
 app.run(host="0.0.0.0", port=8080, debug=True)
+
